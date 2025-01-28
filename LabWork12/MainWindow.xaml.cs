@@ -1,48 +1,120 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Text;
+using System.Linq;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using System.Windows.Forms;
+using MessageBox = System.Windows.MessageBox;
 
-namespace LabWork12
+namespace FileSearchApp
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
         public MainWindow()
         {
             InitializeComponent();
-            pathLabel.Content = Directory.GetCurrentDirectory();
+            FolderLabel.Content = $"Текущая папка: {Directory.GetCurrentDirectory()}";
         }
-
-        private void catalogButton_Click(object sender, RoutedEventArgs e)
+        private void SelectFolderButton_Click(object sender, RoutedEventArgs e)
         {
-            using (FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog())
+            using (var dialog = new FolderBrowserDialog())
             {
-                folderBrowserDialog.ShowDialog();
-                pathLabel.Content = folderBrowserDialog.SelectedPath;
+                DialogResult result = dialog.ShowDialog();
+
+                if (result == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(dialog.SelectedPath))
+                {
+                    FolderLabel.Content = $"Текущая папка: {dialog.SelectedPath}";
+                }
             }
         }
 
-        private void findButton_Click(object sender, RoutedEventArgs e)
+        private void SearchButton_Click(object sender, RoutedEventArgs e)
         {
-            string partialName = particalNameLabel.Text;
-            DirectoryInfo directoryInfo = new DirectoryInfo(pathLabel.Content as string);
-            FileInfo[] files = directoryInfo.GetFiles("*" + partialName + "*.*");
-            foreach (FileInfo foundFile in files)
+            FilesListBox.Items.Clear();
+            string folderPath = FolderLabel.Content.ToString().Replace("Текущая папка: ", "");
+            string searchPattern = FileNamePartTextBox.Text;
+
+            if (string.IsNullOrWhiteSpace(folderPath) || string.IsNullOrWhiteSpace(searchPattern))
             {
-                string fullName = foundFile.FullName;
-                //fileDataGrid.I;
+                MessageBox.Show("Укажите каталог и часть имени файла.");
+                return;
             }
+
+            bool searchInSubfolders = AllSubfoldersRadioButton.IsChecked == true;
+
+            long? minSize = null, maxSize = null;
+            if (ConsiderSizeCheckBox.IsChecked == true)
+            {
+                if (long.TryParse(MinSizeTextBox.Text, out long min) && min > 0)
+                    minSize = min * 1024;
+
+                if (long.TryParse(MaxSizeTextBox.Text, out long max) && max > 0)
+                    maxSize = max * 1024;
+            }
+
+            DateTime? creationDate = null;
+            if (ConsiderDateCheckBox.IsChecked == true)
+            {
+                creationDate = CreationDatePicker.SelectedDate;
+            }
+
+            FilesListBox.Items.Clear();
+
+            var files = FindFiles(folderPath, searchPattern, searchInSubfolders, minSize, maxSize, creationDate);
+
+            foreach (var file in files)
+            {
+                FilesListBox.Items.Add(file);
+            }
+        }
+
+        private IEnumerable<string> FindFiles(string folderPath, string searchPattern, bool searchInSubfolders,
+                                              long? minSize, long? maxSize, DateTime? creationDate)
+        {
+            var searchOption = searchInSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var files = Directory.EnumerateFiles(folderPath, $"*{searchPattern}*", searchOption);
+
+            if (minSize.HasValue || maxSize.HasValue)
+            {
+                files = files.Where(f =>
+                {
+                    var fileInfo = new FileInfo(f);
+                    bool sizeValid = (!minSize.HasValue || fileInfo.Length >= minSize.Value) &&
+                                     (!maxSize.HasValue || fileInfo.Length <= maxSize.Value);
+                    return sizeValid;
+                });
+            }
+
+            if (creationDate.HasValue)
+            {
+                files = files.Where(f =>
+                {
+                    var fileInfo = new FileInfo(f);
+                    return fileInfo.CreationTime >= creationDate.Value;
+                });
+            }
+
+            return files;
+        }
+
+        private void SizeCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            MinSizeTextBox.IsEnabled = MaxSizeTextBox.IsEnabled = true;
+        }
+
+        private void SizeCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            MinSizeTextBox.IsEnabled = MaxSizeTextBox.IsEnabled = false;
+        }
+
+        private void DateCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            CreationDatePicker.IsEnabled = true;
+        }
+
+        private void DateCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            CreationDatePicker.IsEnabled = false;
         }
     }
 }
